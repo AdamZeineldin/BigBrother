@@ -6,4 +6,8 @@ webrtcvad
 sqlite3
 openai-whisper
 ultralytics
+sounddevice
+soundfile
+python-dotenv
+google-genai
 
