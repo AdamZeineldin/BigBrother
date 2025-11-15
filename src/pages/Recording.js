@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import CameraRecorder from "../components/CameraRecorder";
 import Timeline from "../components/Timeline";
+import Chat from "../components/Chat";
 
 const eventTitles = [
   "event1",
@@ -52,8 +53,8 @@ function Recording() {
   };
 
   return (
-    <main className="flex-1 bg-primary-50 flex items-center justify-center p-8">
-      <div className="flex w-full max-w-7xl gap-8">
+    <main className="flex-1 bg-primary-50 flex flex-col items-center justify-center p-8 relative">
+      <div className="flex w-full max-w-7xl gap-8 mb-8">
         <div className="flex-1 flex flex-col items-center justify-center">
           <CameraRecorder
             onRecordingStart={handleRecordingStart}
@@ -85,7 +86,7 @@ function Recording() {
             </button>
           </div>
         </div>
-        <div className="w-96 flex flex-col items-start min-h-0">
+        <div className="w-96 flex flex-col items-start min-h-0 border-2 p-4">
           <div className="w-full">
             <Timeline events={events} />
           </div>
@@ -102,6 +103,10 @@ function Recording() {
             Add Event
           </button>
         </div>
+      </div>
+
+      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-full max-w-5xl px-8">
+        <Chat onSendMessage={(message) => console.log("Message:", message)} />
       </div>
     </main>
   );
