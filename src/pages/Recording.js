@@ -2,41 +2,37 @@ import React, { useState } from "react";
 import CameraRecorder from "../components/CameraRecorder";
 import Timeline from "../components/Timeline";
 
-const randomNames = [
-  "Morning Routine",
-  "Medication Time",
-  "Exercise Session",
-  "Meal Preparation",
-  "Memory Exercise",
-  "Daily Check-in",
-  "Activity Break",
-  "Safety Check",
-  "Social Time",
-  "Evening Routine",
-  "Health Monitoring",
-  "Task Reminder",
-  "Care Check",
-  "Wellness Activity",
-  "Reminder Alert",
+const eventTitles = [
+  "event1",
+  "event2",
+  "event3",
+  "event4",
+  "event5",
+  "event6",
+  "event7",
+  "event8",
+  "event9",
+  "event10",
 ];
 
 function Recording() {
   const [isRecording, setIsRecording] = useState(false);
   const [events, setEvents] = useState([]);
   const [eventIdCounter, setEventIdCounter] = useState(0);
-
-  const getRandomName = () => {
-    return randomNames[Math.floor(Math.random() * randomNames.length)];
-  };
+  const [index, setIndex] = useState(0);
 
   const addEvent = () => {
+    if (index >= eventTitles.length) {
+      return;
+    }
     const newEvent = {
       id: eventIdCounter,
-      title: getRandomName(),
+      title: eventTitles[index],
       timestamp: new Date(),
     };
     setEvents((prev) => [...prev, newEvent]);
     setEventIdCounter((prev) => prev + 1);
+    setIndex((prev) => prev + 1);
   };
 
   const handleStartRecording = () => {
@@ -89,13 +85,19 @@ function Recording() {
             </button>
           </div>
         </div>
-        <div className="w-96 flex flex-col items-start">
-          <div className="w-full h-[70vh] max-h-[70vh] overflow-y-auto">
+        <div className="w-96 flex flex-col items-start min-h-0">
+          <div className="w-full">
             <Timeline events={events} />
           </div>
+
           <button
             onClick={addEvent}
-            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors duration-200 shadow-sm text-sm"
+            disabled={index >= eventTitles.length}
+            className={`mt-4 px-4 py-2 rounded-lg font-medium transition-colors duration-200 shadow-sm text-sm ${
+              index >= eventTitles.length
+                ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                : "bg-primary-600 text-white hover:bg-primary-700"
+            }`}
           >
             Add Event
           </button>

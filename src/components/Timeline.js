@@ -1,77 +1,74 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 function Timeline({ events = [] }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const scrollContainerRef = useRef(null);
+  const contentRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollContainerRef.current && contentRef.current && events.length > 0) {
+      scrollContainerRef.current.scrollTop =
+        scrollContainerRef.current.scrollHeight;
+    }
+  }, [events.length]);
+
   if (events.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center">
+      <div className="max-h-[50vh] flex flex-col items-center justify-center">
         <div className="text-gray-400 text-sm">No events yet</div>
       </div>
     );
   }
 
-  const formatTime = (timestamp) => {
-    if (!timestamp) return "Now";
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+  const getEventTitle = (event) => {
+    if (typeof event.title === "string") return event.title;
+    if (typeof event.title === "object") return String(event.title);
+    return event.label || "Event";
   };
 
   return (
-    <div className="h-full">
-      {events.map((event, idx) => (
-        <div
-          className="flex gap-x-3 hover:font-bold cursor-pointer"
-          key={event.id || idx}
-        >
-          <div className="min-w-14 text-end">
-            <span className="text-xs text-gray-500">
-              {formatTime(event.timestamp)}
-            </span>
-          </div>
+    <div
+      ref={scrollContainerRef}
+      className="overflow-y-auto flex items-center justify-center relative"
+      style={{ maxHeight: "50vh" }}
+    >
+      <div
+        ref={contentRef}
+        className="relative flex flex-col items-center py-8 gap-12 w-full"
+      >
+        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-gray-300 transform -translate-x-1/2"></div>
+        {events.map((event, idx) => {
+          const title = getEventTitle(event);
+          const isHovered = hoveredIndex === idx;
+          const tooltipOnRight = idx % 2 === 0;
 
-          <div className="relative last:after:hidden after:absolute after:top-7 after:bottom-0 after:start-3.5 after:w-px after:-translate-x-[0.5px] after:bg-gray-200">
-            <div className="relative z-10 size-7 flex justify-center items-center">
-              <div className="size-2 rounded-full bg-gray-400" />
-            </div>
-          </div>
+          return (
+            <div
+              key={event.id || idx}
+              className={`relative flex items-center ${
+                isHovered ? "cursor-pointer" : ""
+              }`}
+              onMouseEnter={() => setHoveredIndex(idx)}
+              onMouseLeave={() => setHoveredIndex(null)}
+            >
+              <div className="relative z-10 w-4 h-4 rounded-full bg-gray-600 hover:bg-gray-800 cursor-pointer transition-colors"></div>
 
-          <div className="grow pt-0.5 pb-8">
-            <h3 className="flex gap-x-1.5 font-semibold text-gray-800">
-              {typeof event.title === "string" ||
-              typeof event.title === "object"
-                ? event.title
-                : event.label || `Event ${idx + 1}`}
-            </h3>
-
-            {event.description && (
-              <p className="mt-1 text-sm text-gray-600">{event.description}</p>
-            )}
-
-            {event.actor && (
-              <button
-                type="button"
-                className="mt-1 -ms-1 p-1 inline-flex items-center gap-x-2 text-xs rounded-lg border border-transparent text-gray-500 hover:bg-gray-100 focus:outline-hidden focus:bg-gray-100 disabled:opacity-50 disabled:pointer-events-none"
+              <div
+                className={`absolute z-20 ${
+                  tooltipOnRight ? "left-6" : "right-6"
+                } top-1/2 transform -translate-y-1/2 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 whitespace-nowrap`}
               >
-                {event.actor.type === "img" ? (
-                  <img
-                    className="shrink-0 size-4 rounded-full"
-                    src={event.actor.src}
-                    alt={event.actor.name}
-                  />
-                ) : (
-                  <span className="flex shrink-0 justify-center items-center size-4 bg-white border border-gray-200 text-[10px] font-semibold uppercase text-gray-600 rounded-full">
-                    {event.actor.initial}
-                  </span>
-                )}
-                {event.actor.name}
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
+                <div className="text-sm font-medium text-gray-800">{title}</div>
+                <div
+                  className={`absolute top-1/2 transform -translate-y-1/2 ${
+                    tooltipOnRight ? "-left-1" : "-right-1"
+                  } w-2 h-2 bg-white border-r border-b border-gray-200 rotate-45`}
+                ></div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
