@@ -7,7 +7,7 @@ import json
 import sys
 from datetime import datetime
 from db.database import add_memory_node, get_memory_nodes
-from ai.gemini_client import recall_memories
+from ai.gemini_client2 import recall_memories
 
 BASE_URL = "http://localhost:5000/api"
 

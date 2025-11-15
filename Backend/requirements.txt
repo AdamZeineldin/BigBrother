@@ -8,5 +8,5 @@ ultralytics
 sounddevice
 soundfile
 python-dotenv
-google-genai
+google-generativeai
 
