@@ -56,9 +56,10 @@ function Header() {
 
   return (
     <header className="bg-gradient-to-r from-primary-600 to-primary-600 text-white shadow-lg">
-      <div className="container mx-auto px-4 py-4">
+      <div className="relative px-4 py-4">
         <div className="flex items-center justify-between">
-          <nav className="flex items-center space-x-12 flex-grow justify-center">
+          <div className="flex-shrink-0 w-1/3"></div>
+          <nav className="flex items-center space-x-12 absolute left-1/2 transform -translate-x-1/2">
             <Link
               to="/"
               className={`font-medium transition-colors duration-200 ${
@@ -90,8 +91,7 @@ function Header() {
               FAQ
             </Link>
           </nav>
-
-          <div className="flex items-center space-x-4 flex-shrink-0">
+          <div className="flex items-center space-x-4 flex-shrink-0 w-1/3 justify-end">
             {user ? (
               <div className="flex items-center space-x-3">
                 <span className="hidden md:block font-medium text-white whitespace-nowrap">

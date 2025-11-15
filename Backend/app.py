@@ -1,4 +1,5 @@
 from flask import Flask
+import os
 
 from flask_cors import CORS
 from db.database import init_db
@@ -22,4 +23,6 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Use port 5001 to avoid AirPlay conflict on macOS
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host="0.0.0.0", port=port, debug=True)
