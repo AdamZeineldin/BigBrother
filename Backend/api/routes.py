@@ -9,7 +9,7 @@ from db.database import (
     get_memory_node_by_id
 )
 from audio import recorder, transcribe_audio, save_transcript
-from ai.gemini_client import recall_memories
+from ai.gemini_client2 import recall_memories
 
 api = Blueprint("api", __name__)
 
