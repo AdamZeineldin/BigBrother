@@ -1,0 +1,9 @@
+flask
+flask-cors
+opencv-python
+pyaudio
+webrtcvad
+sqlite3
+openai-whisper
+ultralytics
+
