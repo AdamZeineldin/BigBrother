@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 import os
 import json
 
@@ -276,6 +276,34 @@ def cleanup_orphaned_memory_nodes_endpoint():
         }), 200
     except Exception as e:
         return jsonify({"error": f"Cleanup failed: {str(e)}"}), 500
+
+
+@api.route("/files/<path:filepath>")
+def serve_file(filepath):
+    """Serve files from the data directory (videos, audio, transcripts, images)"""
+    try:
+        # Get the backend directory
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(backend_dir, "data")
+        file_path = os.path.join(data_dir, filepath)
+        
+        # Security check: ensure the file is within the data directory
+        data_dir_abs = os.path.abspath(data_dir)
+        file_path_abs = os.path.abspath(file_path)
+        
+        if not file_path_abs.startswith(data_dir_abs):
+            return jsonify({"error": "Access denied"}), 403
+        
+        if not os.path.exists(file_path):
+            return jsonify({"error": "File not found"}), 404
+        
+        # Get the directory and filename
+        file_dir = os.path.dirname(file_path_abs)
+        filename = os.path.basename(file_path_abs)
+        
+        return send_from_directory(file_dir, filename)
+    except Exception as e:
+        return jsonify({"error": f"Failed to serve file: {str(e)}"}), 500
 
 
 @api.route("/save-event", methods=["POST"])

@@ -143,6 +143,74 @@ function Recording() {
     setSelectedEvent(null);
   };
 
+  // Helper function to format summary text with proper line breaks
+  const formatSummary = (summary) => {
+    if (!summary || summary === "Loading Summary...") {
+      return summary;
+    }
+
+    let formatted = summary;
+
+    // Ensure there's a blank line before **Key sections
+    // Match patterns like **Key Objects:** or **Key People:** or **Key Actions:**
+    // Replace any occurrence of **Key sections that don't start on a new line
+    formatted = formatted.replace(/([^\n])(\*\*Key\s+[^*]+:\*\*)/g, "$1\n\n$2");
+
+    // Ensure each **Key section starts at the beginning of a line
+    formatted = formatted.replace(/\n(\*\*Key\s+[^*]+:\*\*)/g, "\n\n$1");
+
+    // Clean up any triple newlines (more than 2 consecutive newlines)
+    formatted = formatted.replace(/\n{3,}/g, "\n\n");
+
+    // Trim leading/trailing whitespace but preserve structure
+    formatted = formatted.trim();
+
+    return formatted;
+  };
+
+  // Helper function to convert video path to API URL
+  const getVideoUrl = (videoPath) => {
+    if (!videoPath) return null;
+
+    // Extract relative path from data directory
+    // Paths can be:
+    // - Absolute: "/Users/victor/Projects/BigBrother/Backend/data/recordings/file.mp4"
+    // - Relative to Backend: "Backend/data/recordings/file.mp4"
+    // - Already relative: "recordings/file.mp4"
+    let relativePath = videoPath;
+
+    // If it contains "data/", extract everything after "data/"
+    if (videoPath.includes("data/")) {
+      const dataIndex = videoPath.indexOf("data/");
+      relativePath = videoPath.substring(dataIndex + 5); // 5 is length of "data/"
+    } else if (
+      videoPath.startsWith("recordings/") ||
+      videoPath.startsWith("audio/") ||
+      videoPath.startsWith("images/") ||
+      videoPath.startsWith("transcripts/")
+    ) {
+      // If it's already a relative path starting with the subdirectory, use it as is
+      relativePath = videoPath;
+    } else if (videoPath.includes("/recordings/")) {
+      // Extract from after the last "/recordings/"
+      const recordingsIndex = videoPath.lastIndexOf("/recordings/");
+      relativePath = "recordings/" + videoPath.substring(recordingsIndex + 12);
+    } else if (videoPath.includes("/audio/")) {
+      const audioIndex = videoPath.lastIndexOf("/audio/");
+      relativePath = "audio/" + videoPath.substring(audioIndex + 7);
+    } else if (videoPath.includes("/images/")) {
+      const imagesIndex = videoPath.lastIndexOf("/images/");
+      relativePath = "images/" + videoPath.substring(imagesIndex + 8);
+    } else if (videoPath.includes("/transcripts/")) {
+      const transcriptsIndex = videoPath.lastIndexOf("/transcripts/");
+      relativePath =
+        "transcripts/" + videoPath.substring(transcriptsIndex + 13);
+    }
+
+    // Create API URL
+    return `${API_BASE_URL}/files/${relativePath}`;
+  };
+
   const handleStartRecording = async () => {
     try {
       const controller = new AbortController();
@@ -648,7 +716,7 @@ function Recording() {
           onClick={closeEventModal}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+            className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[80vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
@@ -721,76 +789,105 @@ function Recording() {
               </button>
             </div>
             <div className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                Event Summary
-              </h3>
-              <div
-                className="bg-black/50 rounded-lg p-2 overflow-y-auto"
-                style={{ maxHeight: "33vh" }}
-              >
-                {selectedEvent.summary === "Loading Summary..." ? (
-                  <div className="flex items-center gap-2">
-                    <svg
-                      className="animate-spin h-5 w-5 text-black"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    <p className="text-black italic">Loading Summary...</p>
-                  </div>
-                ) : (
-                  <p className="text-black leading-relaxed break-words">
-                    {selectedEvent.summary ||
-                      "No summary available for this event."}
-                  </p>
-                )}
-              </div>
-
-              {selectedEvent.transcript && (
-                <div className="mt-6">
-                  <h4 className="text-md font-semibold text-gray-900 mb-2">
-                    Transcript
-                  </h4>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {selectedEvent.transcript}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {selectedEvent.objects_detected &&
-                selectedEvent.objects_detected.length > 0 && (
-                  <div className="mt-6">
-                    <h4 className="text-md font-semibold text-gray-900 mb-2">
-                      Objects Detected
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedEvent.objects_detected.map((obj, idx) => (
-                        <span
-                          key={idx}
-                          className="px-3 py-1 bg-primary-100 text-primary-700 rounded-full text-sm font-medium"
-                        >
-                          {obj}
-                        </span>
-                      ))}
+              <div className="flex gap-6">
+                {/* Left Column: Video */}
+                {selectedEvent.video_path && (
+                  <div className="flex-shrink-0 w-1/2">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                      Video Recording
+                    </h3>
+                    <div className="rounded-lg overflow-hidden bg-black sticky top-6">
+                      <video
+                        controls
+                        className="w-full h-auto"
+                        src={getVideoUrl(selectedEvent.video_path)}
+                      >
+                        Your browser does not support the video tag.
+                      </video>
                     </div>
                   </div>
                 )}
+
+                {/* Right Column: Summary, Transcript, Objects */}
+                <div
+                  className={`flex-1 ${
+                    selectedEvent.video_path ? "" : "w-full"
+                  }`}
+                >
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    Event Summary
+                  </h3>
+                  <div
+                    className="bg-black/50 rounded-lg p-2 overflow-y-auto"
+                    style={{ maxHeight: "33vh" }}
+                  >
+                    {selectedEvent.summary === "Loading Summary..." ? (
+                      <div className="flex items-center gap-2">
+                        <svg
+                          className="animate-spin h-5 w-5 text-black"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        <p className="text-black italic">Loading Summary...</p>
+                      </div>
+                    ) : (
+                      <div className="text-black leading-relaxed break-words whitespace-pre-line">
+                        {formatSummary(
+                          selectedEvent.summary ||
+                            "No summary available for this event."
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedEvent.transcript && (
+                    <div className="mt-6">
+                      <h4 className="text-md font-semibold text-gray-900 mb-2">
+                        Transcript
+                      </h4>
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                          {selectedEvent.transcript}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedEvent.objects_detected &&
+                    selectedEvent.objects_detected.length > 0 && (
+                      <div className="mt-6">
+                        <h4 className="text-md font-semibold text-gray-900 mb-2">
+                          Objects Detected
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedEvent.objects_detected.map((obj, idx) => (
+                            <span
+                              key={idx}
+                              className="px-3 py-1 bg-primary-100 text-primary-700 rounded-full text-sm font-medium"
+                            >
+                              {obj}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
