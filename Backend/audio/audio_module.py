@@ -225,14 +225,28 @@ def transcribe_audio(audio_path: str, model: str = "gemini-2.5-flash"):
 
 
 def save_transcript(transcript: str, timestamp: str, output_path: str = "transcript.txt"):
-    """Save transcript to file with timestamp"""
+    """Save transcript to file with timestamp. Always creates the file, even if transcript is None/empty."""
     try:
+        # Ensure the directory exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Handle None or empty transcripts - still create the file
+        transcript_text = transcript if transcript else ""
+        if not transcript_text:
+            print(f"Warning: No transcript content to save to {output_path} (creating empty file)", file=sys.stderr)
+        
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(f"Timestamp: {timestamp}\n\n")
-            f.write(transcript)
+            f.write(transcript_text)
+        
         return True
     except OSError as e:
         print(f"Failed to write transcript to file: {e}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Unexpected error saving transcript: {e}", file=sys.stderr)
         return False
 
 
