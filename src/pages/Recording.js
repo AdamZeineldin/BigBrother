@@ -487,6 +487,68 @@ function Recording() {
     console.log("Recording stopped", blob);
   };
 
+  const generateAndPlayAnswer = async (query, summary) => {
+    if (!query || !summary) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/generate-answer-audio`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: query,
+          summary: summary,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to generate answer audio:", response.status);
+        return;
+      }
+
+      // Check if response is audio or JSON
+      const contentType = response.headers.get("content-type");
+
+      if (contentType && contentType.includes("audio/mpeg")) {
+        // Get the answer text from header if available
+        const answerText = response.headers.get("X-Answer-Text");
+        if (answerText) {
+          console.log("Answer:", answerText);
+        }
+
+        // Get audio blob and play it
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+
+        audio.play().catch((error) => {
+          console.error("Error playing audio:", error);
+        });
+
+        // Clean up URL after playback
+        audio.addEventListener("ended", () => {
+          URL.revokeObjectURL(audioUrl);
+        });
+      } else {
+        // If not audio, it might be JSON with error or answer text
+        const data = await response.json();
+        if (data.answer) {
+          console.log("Answer:", data.answer);
+          // Could use browser TTS as fallback if needed
+          if ("speechSynthesis" in window) {
+            const utterance = new SpeechSynthesisUtterance(data.answer);
+            window.speechSynthesis.speak(utterance);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error generating answer audio:", error);
+    }
+  };
+
   const saveEventToJSON = async (event) => {
     // Extract the required fields: summary, transcript, title, timestamp, and file paths
     const eventData = {
@@ -621,6 +683,9 @@ function Recording() {
 
         // Open the popup with the most relevant event
         setSelectedEvent(event);
+
+        // Generate answer and play audio
+        generateAndPlayAnswer(message.trim(), fullSummary);
       } else {
         // No results found
         alert("No relevant events found for your query.");

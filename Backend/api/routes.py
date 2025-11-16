@@ -1,6 +1,10 @@
-from flask import Blueprint, request, jsonify, send_from_directory
+from flask import Blueprint, request, jsonify, send_from_directory, Response
 import os
 import json
+import requests
+import logging
+
+LOGGER = logging.getLogger(__name__)
 
 from db.database import (
     get_events, 
@@ -12,7 +16,7 @@ from db.database import (
     cleanup_orphaned_memory_nodes
 )
 from audio import recorder, transcribe_audio, save_transcript
-from ai.gemini_client import search_memory_nodes as gemini_search_memory_nodes
+from ai.gemini_client import search_memory_nodes as gemini_search_memory_nodes, generate_short_answer
 from camera.camera_service import get_camera_service
 
 api = Blueprint("api", __name__)
@@ -304,6 +308,81 @@ def serve_file(filepath):
         return send_from_directory(file_dir, filename)
     except Exception as e:
         return jsonify({"error": f"Failed to serve file: {str(e)}"}), 500
+
+
+@api.route("/generate-answer-audio", methods=["POST"])
+def generate_answer_audio():
+    """Generate a short answer using Gemini and convert it to speech using ElevenLabs"""
+    data = request.get_json() or {}
+    query = data.get("query", "")
+    summary = data.get("summary", "")
+    
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+    
+    if not summary:
+        return jsonify({"error": "Summary parameter is required"}), 400
+    
+    try:
+        # Step 1: Generate short answer using Gemini
+        answer = generate_short_answer(query=query, summary=summary)
+        
+        if not answer:
+            return jsonify({"error": "Failed to generate answer"}), 500
+        
+        # Step 2: Convert answer to speech using ElevenLabs
+        elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+        if not elevenlabs_api_key:
+            # If no ElevenLabs API key, return the text answer
+            return jsonify({
+                "answer": answer,
+                "audio_url": None,
+                "error": "ELEVENLABS_API_KEY not configured"
+            }), 200
+        
+        # ElevenLabs API endpoint
+        elevenlabs_url = "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"
+        
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": elevenlabs_api_key
+        }
+        
+        payload = {
+            "text": answer,
+            "model_id": "eleven_monolingual_v1",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.5
+            }
+        }
+        
+        # Make request to ElevenLabs
+        response = requests.post(elevenlabs_url, json=payload, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            # Return the audio as a response
+            return Response(
+                response.content,
+                mimetype="audio/mpeg",
+                headers={
+                    "Content-Disposition": "inline; filename=answer.mp3",
+                    "X-Answer-Text": answer  # Include answer text in header for frontend
+                }
+            )
+        else:
+            # If ElevenLabs fails, return the text answer
+            LOGGER.error(f"ElevenLabs API error: {response.status_code} - {response.text}")
+            return jsonify({
+                "answer": answer,
+                "audio_url": None,
+                "error": f"ElevenLabs API error: {response.status_code}"
+            }), 200
+            
+    except Exception as e:
+        LOGGER.error(f"Failed to generate answer audio: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to generate answer audio: {str(e)}"}), 500
 
 
 @api.route("/save-event", methods=["POST"])

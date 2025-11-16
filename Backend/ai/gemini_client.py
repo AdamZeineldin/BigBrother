@@ -36,7 +36,7 @@ if load_dotenv:
 
 _MODEL = None
 
-__all__ = ["describe_image", "summarize_video", "search_memory_nodes", "generate_title"]
+__all__ = ["describe_image", "summarize_video", "search_memory_nodes", "generate_title", "generate_short_answer"]
 
 
 def _get_api_key() -> str:
@@ -363,6 +363,57 @@ Title:"""
             fallback = fallback[:47] + "..."
     
     return fallback
+
+
+def generate_short_answer(query: str, summary: str, timeout: int = 30) -> str:
+    """Generate a short answer to a user query based on an event summary using Gemini.
+    
+    Args:
+        query: User's question/query
+        summary: The event summary to base the answer on
+        timeout: Seconds to wait for Gemini response
+    
+    Returns:
+        A short answer string
+    """
+    if not query or not summary:
+        return "I don't have enough information to answer that question."
+    
+    model = _get_model()
+    
+    prompt = f"""Based on the following event summary, provide a concise and direct answer to the user's question.
+
+Event Summary:
+{summary}
+
+User Question: "{query}"
+
+Provide a brief, natural answer (2-3 sentences maximum) that directly addresses the question based on the event summary. Be conversational and helpful."""
+
+    try:
+        response = model.generate_content(
+            prompt,
+            request_options={"timeout": timeout},
+        )
+        
+        answer = getattr(response, "text", None)
+        if answer:
+            return answer.strip()
+        
+        # Try to extract from candidates
+        if hasattr(response, "candidates"):
+            for candidate in response.candidates or []:
+                if not candidate.content or not getattr(candidate.content, "parts", None):
+                    continue
+                for part in candidate.content.parts:
+                    text = getattr(part, "text", None)
+                    if text:
+                        return text.strip()
+        
+    except Exception as exc:
+        LOGGER.error(f"Gemini answer generation failed: {exc}", exc_info=True)
+    
+    return "I'm sorry, I couldn't generate an answer to that question."
 
 
 if __name__ == "__main__":

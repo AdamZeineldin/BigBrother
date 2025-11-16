@@ -9,4 +9,5 @@ sounddevice
 soundfile
 python-dotenv
 google-generativeai
+requests
 
