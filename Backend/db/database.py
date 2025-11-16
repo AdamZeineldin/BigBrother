@@ -177,3 +177,82 @@ def get_memory_node_by_file_path(file_path):
     row = conn.execute("SELECT * FROM memory_nodes WHERE file_path = ?", (file_path,)).fetchone()
     return dict(row) if row else None
 
+
+def cleanup_orphaned_memory_nodes():
+    """
+    Remove memory nodes whose associated files (video, audio, transcript) no longer exist.
+    Checks all files referenced in the metadata as well.
+    
+    Returns:
+        Tuple of (deleted_count, list of deleted node IDs)
+    """
+    import json
+    conn = get_connection()
+    deleted_ids = []
+    
+    try:
+        # Get all memory nodes
+        rows = conn.execute("SELECT * FROM memory_nodes").fetchall()
+        
+        for row in rows:
+            node = dict(row)
+            node_id = node['id']
+            file_path = node.get('file_path', '')
+            
+            # Parse metadata to check all referenced files
+            metadata = {}
+            try:
+                metadata_str = node.get('metadata', '{}') or '{}'
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+            except:
+                pass
+            
+            # Check if primary file_path exists
+            primary_exists = os.path.exists(file_path) if file_path else False
+            
+            # Check all files referenced in metadata
+            video_path = metadata.get('video_path')
+            audio_path = metadata.get('audio_path')
+            transcript_path = metadata.get('transcript_path')
+            thumbnail_path = metadata.get('thumbnail_path')
+            
+            # If we have video_path in metadata, prefer that over file_path
+            primary_path = video_path or file_path
+            
+            # Check if any required files exist
+            video_exists = os.path.exists(video_path) if video_path else False
+            audio_exists = os.path.exists(audio_path) if audio_path else False
+            transcript_exists = os.path.exists(transcript_path) if transcript_path else False
+            
+            # Delete the node if:
+            # 1. Primary path doesn't exist, OR
+            # 2. Video path is specified but doesn't exist, OR
+            # 3. Both video and transcript don't exist (both are typically required for a complete event)
+            should_delete = False
+            
+            if primary_path:
+                # If we have a primary path, check if it exists
+                if not os.path.exists(primary_path):
+                    should_delete = True
+            else:
+                # If no primary path, check if we have any valid files
+                # If we have a video_path in metadata but it doesn't exist, delete
+                if video_path and not video_exists:
+                    should_delete = True
+                # If no video_path but no files exist, delete
+                elif not video_path and not (audio_exists or transcript_exists):
+                    should_delete = True
+            
+            if should_delete:
+                conn.execute("DELETE FROM memory_nodes WHERE id = ?", (node_id,))
+                deleted_ids.append(node_id)
+                logging.info(f"Deleted orphaned MemoryNode {node_id} (files missing: primary={primary_path}, video={video_path}, audio={audio_path}, transcript={transcript_path})")
+        
+        conn.commit()
+        return len(deleted_ids), deleted_ids
+        
+    except Exception as e:
+        logging.error(f"Error cleaning up orphaned memory nodes: {e}", exc_info=True)
+        conn.rollback()
+        return 0, []
+

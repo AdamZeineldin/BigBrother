@@ -16,6 +16,19 @@ function Recording() {
   // Fetch memory nodes and convert them to events
   const fetchMemoryNodes = async () => {
     try {
+      // First, cleanup orphaned memory nodes
+      try {
+        await fetch(`${API_BASE_URL}/memory-nodes/cleanup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+      } catch (cleanupError) {
+        // Silently fail cleanup - not critical
+        console.debug("Cleanup failed (non-critical):", cleanupError);
+      }
+
       const response = await fetch(
         `${API_BASE_URL}/memory-nodes?file_type=recording`,
         {
@@ -46,8 +59,10 @@ function Recording() {
           console.error("Error parsing metadata:", e);
         }
 
-        const fullSummary =
-          metadata.summary || metadata.description || "No summary available";
+        // Check if summary is loading
+        const summaryText = metadata.summary;
+        const isSummaryLoading = summaryText === "Loading Summary..." || summaryText === null || !summaryText || summaryText.trim() === "";
+        const fullSummary = isSummaryLoading ? "Loading Summary..." : (summaryText || "No summary available");
 
         // Format timestamp as title (e.g., "11/15 11:52 PM")
         const timestamp = node.timestamp || new Date().toISOString();
@@ -533,11 +548,37 @@ function Recording() {
               <h3 className="text-lg font-semibold text-gray-900 mb-3">
                 Event Summary
               </h3>
-              <div className="prose max-w-none">
-                <p className="text-gray-700 leading-relaxed">
-                  {selectedEvent.summary ||
-                    "No summary available for this event."}
-                </p>
+              <div className="prose max-w-none max-h-[50vh] overflow-y-auto">
+                {selectedEvent.summary === "Loading Summary..." ? (
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <svg
+                      className="animate-spin h-5 w-5"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    <p className="text-gray-500 italic">Loading Summary...</p>
+                  </div>
+                ) : (
+                  <p className="text-gray-700 leading-relaxed">
+                    {selectedEvent.summary ||
+                      "No summary available for this event."}
+                  </p>
+                )}
               </div>
 
               {selectedEvent.transcript && (

@@ -8,7 +8,8 @@ from db.database import (
     create_memory_node, 
     get_all_memory_nodes_for_search,
     get_memory_nodes,
-    get_memory_node_by_id
+    get_memory_node_by_id,
+    cleanup_orphaned_memory_nodes
 )
 from audio import recorder, transcribe_audio, save_transcript
 from ai.gemini_client import search_memory_nodes as gemini_search_memory_nodes
@@ -261,6 +262,20 @@ def search_memory_nodes_endpoint():
         
     except Exception as e:
         return jsonify({"error": f"Search failed: {str(e)}"}), 500
+
+
+@api.route("/memory-nodes/cleanup", methods=["POST"])
+def cleanup_orphaned_memory_nodes_endpoint():
+    """Remove memory nodes whose associated files no longer exist"""
+    try:
+        deleted_count, deleted_ids = cleanup_orphaned_memory_nodes()
+        return jsonify({
+            "message": f"Cleaned up {deleted_count} orphaned memory nodes",
+            "deleted_count": deleted_count,
+            "deleted_ids": deleted_ids
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Cleanup failed: {str(e)}"}), 500
 
 
 # Camera service endpoints
