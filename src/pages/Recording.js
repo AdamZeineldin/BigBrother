@@ -99,7 +99,7 @@ function Recording() {
             hour12: true,
             timeZone: "America/New_York",
           });
-          
+
           // Use the formatter directly to get the correct timezone-adjusted string
           eventTitle = formatter.format(date);
         }
@@ -163,47 +163,56 @@ function Recording() {
     return formatted;
   };
 
-  // Helper function to convert video path to API URL
-  const getVideoUrl = (videoPath) => {
-    if (!videoPath) return null;
+  // Helper function to convert file path to API URL (for videos, audio, images, transcripts)
+  const getFileUrl = (filePath) => {
+    if (!filePath) return null;
 
     // Extract relative path from data directory
     // Paths can be:
     // - Absolute: "/Users/victor/Projects/BigBrother/Backend/data/recordings/file.mp4"
     // - Relative to Backend: "Backend/data/recordings/file.mp4"
     // - Already relative: "recordings/file.mp4"
-    let relativePath = videoPath;
+    let relativePath = filePath;
 
     // If it contains "data/", extract everything after "data/"
-    if (videoPath.includes("data/")) {
-      const dataIndex = videoPath.indexOf("data/");
-      relativePath = videoPath.substring(dataIndex + 5); // 5 is length of "data/"
+    if (filePath.includes("data/")) {
+      const dataIndex = filePath.indexOf("data/");
+      relativePath = filePath.substring(dataIndex + 5); // 5 is length of "data/"
     } else if (
-      videoPath.startsWith("recordings/") ||
-      videoPath.startsWith("audio/") ||
-      videoPath.startsWith("images/") ||
-      videoPath.startsWith("transcripts/")
+      filePath.startsWith("recordings/") ||
+      filePath.startsWith("audio/") ||
+      filePath.startsWith("images/") ||
+      filePath.startsWith("transcripts/")
     ) {
       // If it's already a relative path starting with the subdirectory, use it as is
-      relativePath = videoPath;
-    } else if (videoPath.includes("/recordings/")) {
+      relativePath = filePath;
+    } else if (filePath.includes("/recordings/")) {
       // Extract from after the last "/recordings/"
-      const recordingsIndex = videoPath.lastIndexOf("/recordings/");
-      relativePath = "recordings/" + videoPath.substring(recordingsIndex + 12);
-    } else if (videoPath.includes("/audio/")) {
-      const audioIndex = videoPath.lastIndexOf("/audio/");
-      relativePath = "audio/" + videoPath.substring(audioIndex + 7);
-    } else if (videoPath.includes("/images/")) {
-      const imagesIndex = videoPath.lastIndexOf("/images/");
-      relativePath = "images/" + videoPath.substring(imagesIndex + 8);
-    } else if (videoPath.includes("/transcripts/")) {
-      const transcriptsIndex = videoPath.lastIndexOf("/transcripts/");
-      relativePath =
-        "transcripts/" + videoPath.substring(transcriptsIndex + 13);
+      const recordingsIndex = filePath.lastIndexOf("/recordings/");
+      relativePath = "recordings/" + filePath.substring(recordingsIndex + 12);
+    } else if (filePath.includes("/audio/")) {
+      const audioIndex = filePath.lastIndexOf("/audio/");
+      relativePath = "audio/" + filePath.substring(audioIndex + 7);
+    } else if (filePath.includes("/images/")) {
+      const imagesIndex = filePath.lastIndexOf("/images/");
+      relativePath = "images/" + filePath.substring(imagesIndex + 8);
+    } else if (filePath.includes("/transcripts/")) {
+      const transcriptsIndex = filePath.lastIndexOf("/transcripts/");
+      relativePath = "transcripts/" + filePath.substring(transcriptsIndex + 13);
     }
 
     // Create API URL
     return `${API_BASE_URL}/files/${relativePath}`;
+  };
+
+  // Helper function to convert video path to API URL (for backwards compatibility)
+  const getVideoUrl = (videoPath) => {
+    return getFileUrl(videoPath);
+  };
+
+  // Helper function to convert audio path to API URL
+  const getAudioUrl = (audioPath) => {
+    return getFileUrl(audioPath);
   };
 
   const handleStartRecording = async () => {
@@ -482,7 +491,12 @@ function Recording() {
     console.log("Recording stopped", blob);
   };
 
-  const generateAndPlayAnswer = async (query, summary) => {
+  const generateAndPlayAnswer = async (
+    query,
+    summary,
+    videoPath,
+    audioPath
+  ) => {
     if (!query || !summary) {
       return;
     }
@@ -496,6 +510,8 @@ function Recording() {
         body: JSON.stringify({
           query: query,
           summary: summary,
+          video_path: videoPath || null,
+          audio_path: audioPath || null,
         }),
       });
 
@@ -673,7 +689,12 @@ function Recording() {
         setSelectedEvent(event);
 
         // Generate answer and play audio
-        generateAndPlayAnswer(message.trim(), fullSummary);
+        generateAndPlayAnswer(
+          message.trim(),
+          fullSummary,
+          event.video_path,
+          event.audio_path
+        );
       } else {
         // No results found
         alert("No relevant events found for your query.");
@@ -830,28 +851,51 @@ function Recording() {
             </div>
             <div className="p-6">
               <div className="flex gap-6">
-                {/* Left Column: Video */}
-                {selectedEvent.video_path && (
-                  <div className="flex-shrink-0 w-1/2">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                      Video Recording
-                    </h3>
-                    <div className="rounded-lg overflow-hidden bg-black sticky top-6">
-                      <video
-                        controls
-                        className="w-full h-auto"
-                        src={getVideoUrl(selectedEvent.video_path)}
-                      >
-                        Your browser does not support the video tag.
-                      </video>
-                    </div>
+                {/* Left Column: Video and Audio */}
+                {(selectedEvent.video_path || selectedEvent.audio_path) && (
+                  <div className="flex-shrink-0 w-1/2 flex flex-col gap-6">
+                    {selectedEvent.video_path && (
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                          Video Recording
+                        </h3>
+                        <div className="rounded-lg overflow-hidden bg-black sticky top-6">
+                          <video
+                            controls
+                            className="w-full h-auto"
+                            src={getVideoUrl(selectedEvent.video_path)}
+                          >
+                            Your browser does not support the video tag.
+                          </video>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedEvent.audio_path && (
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                          Audio Recording
+                        </h3>
+                        <div className="rounded-lg overflow-hidden bg-gray-100 p-4">
+                          <audio
+                            controls
+                            className="w-full"
+                            src={getAudioUrl(selectedEvent.audio_path)}
+                          >
+                            Your browser does not support the audio tag.
+                          </audio>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Right Column: Summary, Transcript, Objects */}
                 <div
                   className={`flex-1 ${
-                    selectedEvent.video_path ? "" : "w-full"
+                    selectedEvent.video_path || selectedEvent.audio_path
+                      ? ""
+                      : "w-full"
                   }`}
                 >
                   <h3 className="text-lg font-semibold text-gray-900 mb-3">

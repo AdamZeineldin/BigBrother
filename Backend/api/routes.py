@@ -316,6 +316,8 @@ def generate_answer_audio():
     data = request.get_json() or {}
     query = data.get("query", "")
     summary = data.get("summary", "")
+    video_path = data.get("video_path", None)
+    audio_path = data.get("audio_path", None)
     
     if not query:
         return jsonify({"error": "Query parameter is required"}), 400
@@ -324,8 +326,51 @@ def generate_answer_audio():
         return jsonify({"error": "Summary parameter is required"}), 400
     
     try:
-        # Step 1: Generate short answer using Gemini
-        answer = generate_short_answer(query=query, summary=summary)
+        # Resolve full paths if relative paths are provided
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(backend_dir, "data")
+        
+        resolved_video_path = None
+        if video_path:
+            # Check if it's already an absolute path
+            if os.path.isabs(video_path):
+                resolved_video_path = video_path if os.path.exists(video_path) else None
+            else:
+                # Try to resolve relative to data directory
+                if "recordings/" in video_path or video_path.startswith("recordings/"):
+                    # Extract filename
+                    filename = os.path.basename(video_path) if "/" in video_path else video_path
+                    full_path = os.path.join(data_dir, "recordings", filename)
+                    resolved_video_path = full_path if os.path.exists(full_path) else None
+                else:
+                    # Try as-is in data directory
+                    full_path = os.path.join(data_dir, video_path)
+                    resolved_video_path = full_path if os.path.exists(full_path) else None
+        
+        resolved_audio_path = None
+        if audio_path:
+            # Check if it's already an absolute path
+            if os.path.isabs(audio_path):
+                resolved_audio_path = audio_path if os.path.exists(audio_path) else None
+            else:
+                # Try to resolve relative to data directory
+                if "audio/" in audio_path or audio_path.startswith("audio/"):
+                    # Extract filename
+                    filename = os.path.basename(audio_path) if "/" in audio_path else audio_path
+                    full_path = os.path.join(data_dir, "audio", filename)
+                    resolved_audio_path = full_path if os.path.exists(full_path) else None
+                else:
+                    # Try as-is in data directory
+                    full_path = os.path.join(data_dir, audio_path)
+                    resolved_audio_path = full_path if os.path.exists(full_path) else None
+        
+        # Step 1: Generate short answer using Gemini with video and audio
+        answer = generate_short_answer(
+            query=query, 
+            summary=summary,
+            video_path=resolved_video_path,
+            audio_path=resolved_audio_path
+        )
         
         if not answer:
             return jsonify({"error": "Failed to generate answer"}), 500

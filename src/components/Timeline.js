@@ -76,8 +76,19 @@ function Timeline({ events = [], onEventClick }) {
                   {event.timestamp && (
                     <div className="text-xs text-gray-500 mt-0.5">
                       {(() => {
-                        // Format timestamp in EST/EDT
-                        const date = new Date(event.timestamp);
+                        // Ensure timestamp is treated as UTC - add 'Z' if not present
+                        let utcTimestamp = event.timestamp;
+                        if (
+                          !utcTimestamp.endsWith("Z") &&
+                          !utcTimestamp.includes("+") &&
+                          !utcTimestamp.includes("-", 10)
+                        ) {
+                          // If no timezone info, assume it's UTC and add 'Z'
+                          utcTimestamp = utcTimestamp.replace(/\.\d{3,6}/, "") + "Z";
+                        }
+
+                        // Parse as UTC and format in EST/EDT
+                        const date = new Date(utcTimestamp);
                         const formatter = new Intl.DateTimeFormat("en-US", {
                           month: "2-digit",
                           day: "2-digit",
@@ -86,7 +97,7 @@ function Timeline({ events = [], onEventClick }) {
                           hour12: true,
                           timeZone: "America/New_York",
                         });
-                        return `${formatter.format(date)}`;
+                        return formatter.format(date);
                       })()}
                     </div>
                   )}

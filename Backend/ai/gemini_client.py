@@ -365,12 +365,14 @@ Title:"""
     return fallback
 
 
-def generate_short_answer(query: str, summary: str, timeout: int = 30) -> str:
-    """Generate a short answer to a user query based on an event summary using Gemini.
+def generate_short_answer(query: str, summary: str, video_path: Optional[str] = None, audio_path: Optional[str] = None, timeout: int = 60) -> str:
+    """Generate a short answer to a user query based on an event summary, video, and audio using Gemini.
     
     Args:
         query: User's question/query
         summary: The event summary to base the answer on
+        video_path: Optional path to the video file to analyze
+        audio_path: Optional path to the audio file to analyze
         timeout: Seconds to wait for Gemini response
     
     Returns:
@@ -381,20 +383,85 @@ def generate_short_answer(query: str, summary: str, timeout: int = 30) -> str:
     
     model = _get_model()
     
-    prompt = f"""Based on the following event summary, provide a concise and direct answer to the user's question.
+    # Build content list with prompt and media files
+    content_parts = []
+    
+    # Add text prompt
+    prompt = f"""Based on the following event summary and any provided media (video/audio), provide a concise and direct answer to the user's question.
 
 Event Summary:
 {summary}
 
 User Question: "{query}"
 
-Provide a brief, natural answer (2-3 sentences maximum) that directly addresses the question based on the event summary. Be conversational and helpful."""
+Provide a brief, natural answer (2-3 sentences maximum) that directly addresses the question based on the event summary and media content. Be conversational and helpful."""
+    
+    content_parts.append(prompt)
+    
+    # Add video if provided
+    video_file = None
+    if video_path and Path(video_path).exists():
+        try:
+            LOGGER.info(f"Uploading video for analysis: {Path(video_path).name}")
+            video_file = genai.upload_file(path=video_path)
+            
+            # Wait for the video to be processed
+            while video_file.state.name == "PROCESSING":
+                time.sleep(5)
+                video_file = genai.get_file(video_file.name)
+            
+            if video_file.state.name == "FAILED":
+                LOGGER.warning(f"Video processing failed for {Path(video_path).name}")
+                video_file = None
+            else:
+                content_parts.append(video_file)
+                LOGGER.info(f"Video uploaded successfully: {Path(video_path).name}")
+        except Exception as exc:
+            LOGGER.warning(f"Failed to upload video: {exc}")
+            video_file = None
+    
+    # Add audio if provided
+    audio_file = None
+    if audio_path and Path(audio_path).exists():
+        try:
+            LOGGER.info(f"Uploading audio for analysis: {Path(audio_path).name}")
+            audio_file = genai.upload_file(path=audio_path)
+            
+            # Wait for the audio to be processed
+            while audio_file.state.name == "PROCESSING":
+                time.sleep(5)
+                audio_file = genai.get_file(audio_file.name)
+            
+            if audio_file.state.name == "FAILED":
+                LOGGER.warning(f"Audio processing failed for {Path(audio_path).name}")
+                audio_file = None
+            else:
+                content_parts.append(audio_file)
+                LOGGER.info(f"Audio uploaded successfully: {Path(audio_path).name}")
+        except Exception as exc:
+            LOGGER.warning(f"Failed to upload audio: {exc}")
+            audio_file = None
 
     try:
         response = model.generate_content(
-            prompt,
+            content_parts,
             request_options={"timeout": timeout},
         )
+        
+        # Clean up uploaded files
+        if video_file:
+            try:
+                genai.delete_file(video_file.name)
+                LOGGER.info(f"Cleaned up uploaded video file: {video_file.name}")
+            except:
+                pass
+        
+        if audio_file:
+            try:
+                genai.delete_file(audio_file.name)
+                LOGGER.info(f"Cleaned up uploaded audio file: {audio_file.name}")
+            except:
+                pass
         
         answer = getattr(response, "text", None)
         if answer:
@@ -411,6 +478,17 @@ Provide a brief, natural answer (2-3 sentences maximum) that directly addresses 
                         return text.strip()
         
     except Exception as exc:
+        # Clean up uploaded files on error
+        if video_file:
+            try:
+                genai.delete_file(video_file.name)
+            except:
+                pass
+        if audio_file:
+            try:
+                genai.delete_file(audio_file.name)
+            except:
+                pass
         LOGGER.error(f"Gemini answer generation failed: {exc}", exc_info=True)
     
     return "I'm sorry, I couldn't generate an answer to that question."
