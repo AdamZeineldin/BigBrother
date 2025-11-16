@@ -1,27 +1,43 @@
 # BigBrother
 
-A React application created with Create React App and Tailwind CSS v2.
+This project is a cross-platform web application designed to help forgetful individuals and those with Alzheimer's by automatically logging daily events from their environment. Using the user’s webcam and microphone, the system will monitor and record important moments – for example, noting where the user placed their keys – and listen to conversations to create reminders, daily summaries, and conversation feeds. The application emphasizes privacy by running locally (no cloud storage) and uses AI for intelligent motion detection, image understanding, and speech analysis.
 
 ## Getting Started
 
-### Prerequisites
+This project has a separate frontend and backend. You will need to run both for the application to work correctly.
 
-- Node.js (v14 or higher recommended)
-- npm or yarn
+### Backend Setup
 
-### Installation
+1.  **Navigate to the Backend Directory:**
+    ```bash
+    cd Backend
+    ```
 
-1. Install dependencies:
-```bash
-npm install
-```
+2.  **Install Python Dependencies:**
+    It is recommended to use a virtual environment.
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-2. Start the development server:
-```bash
-npm start
-```
+3.  **Run the Backend Server:**
+    ```bash
+    python3 app.py
+    ```
+    The backend server will be running on [http://localhost:5000](http://localhost:5000).
 
-The app will open at [http://localhost:3000](http://localhost:3000)
+### Frontend Setup
+
+1.  **Install JavaScript Dependencies:**
+    From the root directory of the project:
+    ```bash
+    npm install
+    ```
+
+2.  **Start the Frontend Development Server:**
+    ```bash
+    npm start
+    ```
+    The app will open at [http://localhost:3000](http://localhost:3000).
 
 ### Build for Production
 
@@ -33,7 +49,15 @@ This creates an optimized production build in the `build` folder.
 
 ## Technologies Used
 
+### Frontend
 - React 18.2.0
 - Create React App 5.0.1
-- Tailwind CSS 2.2.19
+- Tailwind CSS
+
+### Backend
+- Python 3
+- Flask
+- OpenCV
+- Google Gemini
+- SQLite
 
