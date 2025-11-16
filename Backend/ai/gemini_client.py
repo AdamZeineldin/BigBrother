@@ -215,11 +215,19 @@ Node {node['id']}:
 
 User Query: "{query}"
 
-Analyze the query and the MemoryNodes. Consider:
+Analyze the query and the MemoryNodes. Pay special attention to:
+- Summary content: Compare the query with the summary field in metadata. The summary describes what happened in the video/event.
+- Transcript content: Compare the query with the transcript field in metadata. The transcript contains the actual spoken words from the audio.
+- Semantic matching: Look for conceptual matches, not just exact keyword matches. For example, if the query mentions "cooking" and a summary says "preparing a meal", these should be considered relevant.
+- Objects detected: Check if the query mentions objects that appear in the objects_detected field.
 - File type relevance (video, audio, transcript)
-- Timestamp relevance
-- Metadata content
-- File path patterns
+- Timestamp relevance (if the query mentions time-related information)
+- Title: Check if the query matches the title field in metadata
+
+The summary and transcript are the most important fields for determining relevance. A MemoryNode is relevant if:
+- Its summary describes events, people, or activities related to the query
+- Its transcript contains words or topics related to the query
+- The query's intent matches what the event captured
 
 Return ONLY a JSON array of the node IDs (as integers) that are most relevant to the query, ordered by relevance (most relevant first). 
 Return at most {max_results} node IDs.

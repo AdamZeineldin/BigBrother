@@ -278,6 +278,49 @@ def cleanup_orphaned_memory_nodes_endpoint():
         return jsonify({"error": f"Cleanup failed: {str(e)}"}), 500
 
 
+@api.route("/save-event", methods=["POST"])
+def save_event_to_json():
+    """Save event data to target.json file in the src directory"""
+    data = request.get_json() or {}
+    
+    # Extract filename from path (just the basename)
+    def get_filename(file_path):
+        if not file_path:
+            return None
+        return os.path.basename(file_path)
+    
+    # Extract the required fields and file names
+    event_data = {
+        "title": data.get("title"),
+        "timestamp": data.get("timestamp"),
+        "summary": data.get("summary"),
+        "transcript": data.get("transcript"),
+        "recording": get_filename(data.get("video_path")),
+        "audio": get_filename(data.get("audio_path")),
+        "transcript_file": get_filename(data.get("transcript_path")),
+        "image": get_filename(data.get("thumbnail_path")),
+    }
+    
+    try:
+        # Path to target.json in src directory
+        # Backend is at project_root/Backend, so target.json is at project_root/src/target.json
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_root = os.path.dirname(backend_dir)
+        target_json_path = os.path.join(project_root, "src", "target.json")
+        
+        # Write JSON data to file
+        with open(target_json_path, "w", encoding="utf-8") as f:
+            json.dump(event_data, f, indent=2, ensure_ascii=False)
+        
+        return jsonify({
+            "message": "Event data saved to target.json",
+            "path": target_json_path
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to save event data: {str(e)}"}), 500
+
+
 # Camera service endpoints
 @api.route("/camera/start", methods=["POST"])
 def start_camera():

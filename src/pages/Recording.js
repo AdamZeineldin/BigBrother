@@ -419,6 +419,152 @@ function Recording() {
     console.log("Recording stopped", blob);
   };
 
+  const saveEventToJSON = async (event) => {
+    // Extract the required fields: summary, transcript, title, timestamp, and file paths
+    const eventData = {
+      title: event.title || null,
+      timestamp: event.timestamp || null,
+      summary: event.summary || null,
+      transcript: event.transcript || null,
+      video_path: event.video_path || null,
+      audio_path: event.audio_path || null,
+      transcript_path: event.transcript_path || null,
+      thumbnail_path: event.thumbnail_path || null,
+    };
+
+    try {
+      // Send event data to backend to save to target.json
+      const response = await fetch(`${API_BASE_URL}/save-event`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(eventData),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to save event data:", response.status);
+      } else {
+        console.log("Event data saved to target.json");
+      }
+    } catch (error) {
+      console.error("Error saving event data:", error);
+    }
+  };
+
+  const handleChatMessage = async (message) => {
+    if (!message || !message.trim()) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/memory-nodes/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: message.trim(),
+          max_results: 1, // Get only the most relevant event
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to search memory nodes:", response.status);
+        alert("Failed to search events. Please try again.");
+        return;
+      }
+
+      const data = await response.json();
+      const results = data.memory_nodes || [];
+
+      if (results.length > 0) {
+        // Get the most relevant memory node (first result)
+        const mostRelevantNode = results[0];
+
+        // Convert the memory node to an event format
+        let metadata = {};
+        try {
+          metadata =
+            typeof mostRelevantNode.metadata === "string"
+              ? JSON.parse(mostRelevantNode.metadata)
+              : mostRelevantNode.metadata || {};
+        } catch (e) {
+          console.error("Error parsing metadata:", e);
+        }
+
+        const summaryText = metadata.summary;
+        const isSummaryLoading =
+          summaryText === "Loading Summary..." ||
+          summaryText === null ||
+          !summaryText ||
+          summaryText.trim() === "";
+        const fullSummary = isSummaryLoading
+          ? "Loading Summary..."
+          : summaryText || "No summary available";
+
+        let eventTitle = metadata.title;
+        if (!eventTitle || eventTitle.trim() === "") {
+          const timestamp =
+            mostRelevantNode.timestamp || new Date().toISOString();
+          let utcTimestamp = timestamp;
+          if (
+            !utcTimestamp.endsWith("Z") &&
+            !utcTimestamp.includes("+") &&
+            !utcTimestamp.includes("-", 10)
+          ) {
+            utcTimestamp = utcTimestamp.replace(/\.\d{3,6}/, "") + "Z";
+          }
+
+          const date = new Date(utcTimestamp);
+          const formatter = new Intl.DateTimeFormat("en-US", {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: "America/New_York",
+          });
+          const parts = formatter.formatToParts(date);
+          const month = parts.find((p) => p.type === "month").value;
+          const day = parts.find((p) => p.type === "day").value;
+          const hour = parts.find((p) => p.type === "hour").value;
+          const minute = parts.find((p) => p.type === "minute").value;
+          const dayPeriod =
+            parts.find((p) => p.type === "dayPeriod")?.value || "";
+          eventTitle = `${month}/${day} ${hour}:${minute} ${dayPeriod.toUpperCase()}`;
+        }
+
+        const event = {
+          id: mostRelevantNode.id,
+          title: eventTitle,
+          timestamp: mostRelevantNode.timestamp || new Date().toISOString(),
+          summary: fullSummary,
+          transcript: metadata.transcript || null,
+          video_path: metadata.video_path || mostRelevantNode.file_path,
+          audio_path: metadata.audio_path || null,
+          transcript_path: metadata.transcript_path || null,
+          thumbnail_path: metadata.thumbnail_path || null,
+          objects_detected: metadata.objects_detected || [],
+        };
+
+        // Save event data to JSON file
+        saveEventToJSON(event);
+
+        // Open the popup with the most relevant event
+        setSelectedEvent(event);
+      } else {
+        // No results found
+        alert("No relevant events found for your query.");
+      }
+    } catch (error) {
+      console.error("Error searching memory nodes:", error);
+      alert(
+        "Failed to search events. Please make sure the backend server is running."
+      );
+    }
+  };
+
   return (
     <main className="flex-1 bg-gradient-to-br from-primary-50 via-white to-primary-50 min-h-screen">
       <div className="container mx-auto px-4 py-6">
@@ -492,7 +638,7 @@ function Recording() {
               Ask questions about recorded events
             </p>
           </div>
-          <Chat onSendMessage={(message) => console.log("Message:", message)} />
+          <Chat onSendMessage={handleChatMessage} />
         </div>
       </div>
 
