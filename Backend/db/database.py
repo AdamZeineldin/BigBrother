@@ -1,5 +1,5 @@
 import sqlite3
-
+import logging
 import os
 
 # Get the directory where this file is located
@@ -43,4 +43,137 @@ def search_events(keyword):
         ORDER BY id DESC
     """, (f"%{keyword}%",)).fetchall()
     return [dict(row) for row in rows]
+
+# MemoryNode functions
+def create_memory_node(file_path, file_type, timestamp, metadata=None):
+    """
+    Create a new MemoryNode in the database.
+    
+    Args:
+        file_path: Path to the file (video, audio, or transcript)
+        file_type: Type of file ('video', 'audio', or 'transcript')
+        timestamp: Timestamp when the file was created
+        metadata: Optional JSON string containing additional metadata
+    
+    Returns:
+        The ID of the created MemoryNode
+    """
+    conn = get_connection()
+    cursor = conn.execute("""
+        INSERT INTO memory_nodes (file_path, file_type, timestamp, metadata)
+        VALUES (?, ?, ?, ?)
+    """, (file_path, file_type, timestamp, metadata))
+    conn.commit()
+    return cursor.lastrowid
+
+def get_memory_nodes(file_type=None, limit=None):
+    """
+    Get all MemoryNodes, optionally filtered by file_type.
+    
+    Args:
+        file_type: Optional filter by file type ('video', 'audio', or 'transcript')
+        limit: Optional limit on number of results
+    
+    Returns:
+        List of MemoryNode dictionaries
+    """
+    conn = get_connection()
+    if file_type:
+        query = "SELECT * FROM memory_nodes WHERE file_type = ? ORDER BY timestamp DESC"
+        params = (file_type,)
+    else:
+        query = "SELECT * FROM memory_nodes ORDER BY timestamp DESC"
+        params = ()
+    
+    if limit:
+        query += f" LIMIT {limit}"
+    
+    rows = conn.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+def get_memory_node_by_id(node_id):
+    """
+    Get a MemoryNode by its ID.
+    
+    Args:
+        node_id: The ID of the MemoryNode
+    
+    Returns:
+        MemoryNode dictionary or None if not found
+    """
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM memory_nodes WHERE id = ?", (node_id,)).fetchone()
+    return dict(row) if row else None
+
+def get_memory_nodes_by_timestamp_range(start_timestamp, end_timestamp):
+    """
+    Get MemoryNodes within a timestamp range.
+    
+    Args:
+        start_timestamp: Start timestamp (ISO format string)
+        end_timestamp: End timestamp (ISO format string)
+    
+    Returns:
+        List of MemoryNode dictionaries
+    """
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM memory_nodes
+        WHERE timestamp >= ? AND timestamp <= ?
+        ORDER BY timestamp DESC
+    """, (start_timestamp, end_timestamp)).fetchall()
+    return [dict(row) for row in rows]
+
+def get_all_memory_nodes_for_search():
+    """
+    Get all MemoryNodes formatted for Gemini search.
+    Returns a list of dictionaries with id, file_path, file_type, timestamp, and metadata.
+    """
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT id, file_path, file_type, timestamp, metadata
+        FROM memory_nodes
+        ORDER BY timestamp DESC
+    """).fetchall()
+    return [dict(row) for row in rows]
+
+def update_memory_node_metadata(node_id, metadata):
+    """
+    Update the metadata of a MemoryNode by ID.
+    
+    Args:
+        node_id: The ID of the MemoryNode to update
+        metadata: New metadata (will be JSON stringified)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    import json
+    conn = get_connection()
+    try:
+        metadata_str = json.dumps(metadata) if not isinstance(metadata, str) else metadata
+        conn.execute("""
+            UPDATE memory_nodes
+            SET metadata = ?
+            WHERE id = ?
+        """, (metadata_str, node_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        logging.error(f"Failed to update MemoryNode metadata: {e}")
+        return False
+
+def get_memory_node_by_file_path(file_path):
+    """
+    Get a MemoryNode by its file_path.
+    
+    Args:
+        file_path: The file path of the MemoryNode
+    
+    Returns:
+        MemoryNode dictionary or None if not found
+    """
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM memory_nodes WHERE file_path = ?", (file_path,)).fetchone()
+    return dict(row) if row else None
 

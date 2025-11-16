@@ -16,15 +16,17 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Deque, Dict, List, Optional, Tuple
+import json
 
 import cv2
 
 # --- Dependency Imports & Fallbacks ---
 
 try:  # Database helper
-    from ..db.database import add_event
+    from ..db.database import add_event, create_memory_node
 except (ImportError, ModuleNotFoundError):
     add_event = None
+    create_memory_node = None
     logging.warning("Database module not found. Events will be logged to console only.")
 
 
@@ -49,6 +51,16 @@ def _import_gemini_helpers() -> (Callable[[str], str], Callable[[str], str]):
     return _fallback_describe, _fallback_summarize
 
 
+def _import_audio_helpers():
+    """Return audio recorder and transcription functions if available, else None."""
+    try:
+        from ..audio.audio_module import recorder, transcribe_audio, save_transcript
+        return recorder, transcribe_audio, save_transcript
+    except (ImportError, ModuleNotFoundError) as exc:
+        logging.warning("Audio module unavailable: %s", exc)
+        return None, None, None
+
+
 def _load_yolo_model():
     """Load YOLOv8 model if available, otherwise return None."""
     try:
@@ -66,9 +78,13 @@ def analyze_and_log_video(
     describe_image: Callable,
     summarize_video: Callable,
     image_dir: Path,
+    audio_path: Optional[str] = None,
+    transcript_path: Optional[str] = None,
+    transcript: Optional[str] = None,
 ):
     """
     Analyzes a video in a separate thread, generates a summary, and logs the event.
+    Creates a unified MemoryNode with video path, audio path, summary, and transcript.
     """
     try:
         logging.info(f"Starting analysis for {video_path}...")
@@ -128,6 +144,61 @@ def analyze_and_log_video(
                 )
             except Exception as e:
                 logging.error(f"Failed to save video event to database: {e}")
+        
+        # Create or update unified MemoryNode with all data (video, audio, summary, transcript)
+        if create_memory_node:
+            try:
+                from ..db.database import get_memory_node_by_file_path, update_memory_node_metadata
+                
+                # Check if MemoryNode already exists (might have been created by transcript thread)
+                existing_node = get_memory_node_by_file_path(video_path)
+                
+                if existing_node:
+                    # Update existing MemoryNode with video analysis data
+                    try:
+                        existing_metadata = json.loads(existing_node.get('metadata', '{}') or '{}')
+                    except:
+                        existing_metadata = {}
+                    
+                    # Update with video analysis data (summary, objects, etc.)
+                    existing_metadata['video_path'] = video_path
+                    existing_metadata['summary'] = summary
+                    existing_metadata['objects_detected'] = objects
+                    existing_metadata['description'] = description
+                    existing_metadata['thumbnail_path'] = str(first_frame_path)
+                    if audio_path:
+                        existing_metadata['audio_path'] = audio_path
+                    if transcript_path:
+                        existing_metadata['transcript_path'] = transcript_path
+                    if transcript:
+                        existing_metadata['transcript'] = transcript
+                    
+                    # Update the node
+                    if update_memory_node_metadata(existing_node['id'], existing_metadata):
+                        logging.info(f"✓ Updated existing MemoryNode {existing_node['id']} with video analysis data")
+                    else:
+                        logging.error(f"✗ Failed to update existing MemoryNode {existing_node['id']}")
+                else:
+                    # Create new MemoryNode with all available data
+                    metadata = {
+                        "video_path": video_path,
+                        "audio_path": audio_path,
+                        "transcript_path": transcript_path,
+                        "summary": summary,
+                        "transcript": transcript,
+                        "objects_detected": objects,
+                        "description": description,
+                        "thumbnail_path": str(first_frame_path)
+                    }
+                    create_memory_node(
+                        file_path=video_path,  # Use video path as primary file path
+                        file_type="recording",   # Changed to "recording" to indicate it's a complete recording session
+                        timestamp=ts_utc.isoformat(),
+                        metadata=json.dumps(metadata)
+                    )
+                    logging.info(f"✓ Created new MemoryNode for recording: {video_path}")
+            except Exception as e:
+                logging.error(f"Failed to create/update MemoryNode: {e}", exc_info=True)
 
     except Exception as e:
         logging.critical(f"An error occurred during video analysis for {video_path}: {e}", exc_info=True)
@@ -154,6 +225,7 @@ def run_camera_loop(
     """
     yolo_model = _load_yolo_model()
     describe_image, summarize_video = _import_gemini_helpers()
+    audio_recorder, transcribe_audio, save_transcript = _import_audio_helpers()
     
     # Use a deque to store recent motion levels
     motion_history_length = int(processing_fps * 2)  # Store 2 seconds of motion data
@@ -163,6 +235,11 @@ def run_camera_loop(
     # Create a directory for video recordings
     recording_dir = image_dir.parent / "recordings"
     recording_dir.mkdir(parents=True, exist_ok=True)
+    # Create directories for audio recordings and transcripts
+    audio_dir = image_dir.parent / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    transcript_dir = image_dir.parent / "transcripts"
+    transcript_dir.mkdir(parents=True, exist_ok=True)
 
     def _open_capture() -> cv2.VideoCapture:
         """Opens, configures, and primes the video capture device."""
@@ -203,6 +280,8 @@ def run_camera_loop(
     last_motion_time = None
     video_writer = None
     consecutive_failures = 0
+    audio_path = None  # Track current audio recording path
+    current_timestamp_str = None  # Track timestamp for current recording
     
     # We need two frames for comparison
     prev_gray_frame = None
@@ -262,7 +341,8 @@ def run_camera_loop(
                     # --- Start of a new recording ---
                     is_recording = True
                     ts_utc = datetime.utcnow()
-                    video_filename = f"motion_{ts_utc.strftime('%Y%m%d_%H%M%S')}.mp4"
+                    current_timestamp_str = ts_utc.strftime('%Y%m%d_%H%M%S')
+                    video_filename = f"motion_{current_timestamp_str}.mp4"
                     video_path = str(recording_dir / video_filename)
                     
                     # Get frame dimensions for VideoWriter
@@ -271,6 +351,17 @@ def run_camera_loop(
                     # Define the codec and create VideoWriter object
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                     video_writer = cv2.VideoWriter(video_path, fourcc, capture_fps or processing_fps, (frame_width, frame_height))
+                    
+                    # Start audio recording
+                    if audio_recorder:
+                        audio_filename = f"motion_{current_timestamp_str}.wav"
+                        audio_path = str(audio_dir / audio_filename)
+                        result, status_code = audio_recorder.start_recording(audio_path)
+                        if status_code == 200:
+                            logging.info(f"Audio recording started: {audio_path}")
+                        else:
+                            logging.warning(f"Failed to start audio recording: {result.get('error', 'Unknown error')}")
+                            audio_path = None
                     
                     logging.info(f"Motion detected (avg level: {avg_motion:.0f})! Starting new recording: {video_path}")
             
@@ -283,24 +374,151 @@ def run_camera_loop(
                 if time.monotonic() - (last_motion_time or 0) > inactivity_timeout:
                     logging.info(f"Motion level below threshold for {inactivity_timeout}s. Stopping recording: {video_path}")
                     is_recording = False
+                    
+                    # Stop audio recording
+                    current_audio_path = audio_path
+                    current_video_path = video_path  # Capture video_path before releasing
+                    timestamp_for_transcript = current_timestamp_str if current_timestamp_str else datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+                    if audio_recorder and current_audio_path:
+                        result, status_code = audio_recorder.stop_recording()
+                        if status_code == 200:
+                            logging.info(f"Audio recording stopped: {current_audio_path}")
+                            
+                            # Transcribe audio in a separate thread
+                            def transcribe_and_save():
+                                try:
+                                    logging.info(f"Starting transcription for: {current_audio_path}")
+                                    transcript, timestamp = transcribe_audio(current_audio_path)
+                                    
+                                    # Save transcript to file with matching timestamp
+                                    transcript_filename = f"motion_{timestamp_for_transcript}.txt"
+                                    transcript_path = str(transcript_dir / transcript_filename)
+                                    transcript_saved = save_transcript(transcript, timestamp, transcript_path)
+                                    
+                                    if transcript_saved:
+                                        logging.info(f"Transcript saved: {transcript_path}")
+                                    else:
+                                        logging.error(f"Failed to save transcript: {transcript_path}")
+                                    
+                                    # Update or create MemoryNode with transcript data
+                                    # We need to either update existing MemoryNode or create one if it doesn't exist yet
+                                    if create_memory_node and current_video_path and transcript:
+                                        try:
+                                            from ..db.database import (
+                                                get_memory_node_by_file_path, 
+                                                update_memory_node_metadata,
+                                                create_memory_node as create_node
+                                            )
+                                            
+                                            # Wait for MemoryNode to be created (with retries)
+                                            max_retries = 15  # More retries since video analysis can take time
+                                            retry_delay = 2.0  # 2 seconds between retries
+                                            video_node = None
+                                            
+                                            logging.info(f"Looking for MemoryNode to update with transcript: {current_video_path}")
+                                            
+                                            for attempt in range(max_retries):
+                                                video_node = get_memory_node_by_file_path(current_video_path)
+                                                if video_node:
+                                                    logging.info(f"✓ Found MemoryNode {video_node['id']} on attempt {attempt + 1}")
+                                                    break
+                                                if attempt < max_retries - 1:
+                                                    logging.debug(f"MemoryNode not found yet, waiting {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                                                    time.sleep(retry_delay)
+                                            
+                                            if video_node:
+                                                # Get existing metadata
+                                                try:
+                                                    existing_metadata = json.loads(video_node.get('metadata', '{}') or '{}')
+                                                except:
+                                                    existing_metadata = {}
+                                                
+                                                # Update with transcript data
+                                                existing_metadata['transcript'] = transcript
+                                                existing_metadata['transcript_path'] = transcript_path
+                                                existing_metadata['audio_path'] = current_audio_path
+                                                
+                                                # Update the node
+                                                if update_memory_node_metadata(video_node['id'], existing_metadata):
+                                                    logging.info(f"✓ Successfully updated MemoryNode {video_node['id']} with transcript ({len(transcript)} characters)")
+                                                    
+                                                    # Verify the update worked
+                                                    time.sleep(0.5)  # Brief pause before verification
+                                                    updated_node = get_memory_node_by_file_path(current_video_path)
+                                                    if updated_node:
+                                                        try:
+                                                            verify_metadata = json.loads(updated_node.get('metadata', '{}') or '{}')
+                                                            if verify_metadata.get('transcript'):
+                                                                logging.info(f"✓✓ Verified: transcript is stored in MemoryNode {video_node['id']}")
+                                                                logging.info(f"   Transcript preview: {transcript[:50]}...")
+                                                            else:
+                                                                logging.error(f"✗ Verification failed: transcript not found in MemoryNode {video_node['id']}")
+                                                                logging.error(f"   Metadata keys: {list(verify_metadata.keys())}")
+                                                        except Exception as e:
+                                                            logging.error(f"✗ Error verifying metadata: {e}")
+                                                else:
+                                                    logging.error(f"✗ Failed to update MemoryNode {video_node['id']} with transcript")
+                                            else:
+                                                # MemoryNode doesn't exist yet - create it with transcript
+                                                logging.warning(f"⚠ MemoryNode not found after {max_retries} attempts. Creating new one with transcript.")
+                                                try:
+                                                    # Create a basic MemoryNode with transcript
+                                                    # The video summary will be added later by analyze_and_log_video
+                                                    metadata = {
+                                                        "video_path": current_video_path,
+                                                        "audio_path": current_audio_path,
+                                                        "transcript_path": transcript_path,
+                                                        "summary": None,  # Will be updated later
+                                                        "transcript": transcript,
+                                                        "objects_detected": [],
+                                                        "description": "Recording with transcript",
+                                                    }
+                                                    node_id = create_node(
+                                                        file_path=current_video_path,
+                                                        file_type="recording",
+                                                        timestamp=timestamp,
+                                                        metadata=json.dumps(metadata)
+                                                    )
+                                                    logging.info(f"✓ Created MemoryNode {node_id} with transcript ({len(transcript)} characters)")
+                                                except Exception as e:
+                                                    logging.error(f"✗ Failed to create MemoryNode with transcript: {e}", exc_info=True)
+                                        except Exception as e:
+                                            logging.error(f"✗ Error handling transcript in MemoryNode: {e}", exc_info=True)
+                                    elif not transcript:
+                                        logging.warning(f"⚠ No transcript to store for {current_video_path}")
+                                    
+                                except Exception as e:
+                                    logging.error(f"Error transcribing audio {current_audio_path}: {e}", exc_info=True)
+                            
+                            transcription_thread = threading.Thread(target=transcribe_and_save, daemon=True)
+                            transcription_thread.start()
+                        else:
+                            logging.warning(f"Failed to stop audio recording: {result.get('error', 'Unknown error')}")
+                    
                     if video_writer:
                         video_writer.release()
                         
                         # Start analysis in a new thread
+                        # Pass audio_path and transcript_path so we can create unified MemoryNode
                         analysis_thread = threading.Thread(
                             target=analyze_and_log_video,
                             args=(
-                                video_path,
+                                current_video_path,
                                 yolo_model,
                                 describe_image,
                                 summarize_video,
                                 image_dir,
+                                current_audio_path,  # audio_path
+                                None,  # transcript_path (will be set later)
+                                None,  # transcript (will be set later)
                             ),
                             daemon=True,
                         )
                         analysis_thread.start()
 
                         video_writer = None
+                    audio_path = None
+                    current_timestamp_str = None
             
             # --- Frame Rate Control ---
             elapsed = time.monotonic() - read_start_time
@@ -309,6 +527,14 @@ def run_camera_loop(
                 time.sleep(sleep_time)
 
     finally:
+        # Stop audio recording if still active
+        if audio_recorder and audio_path:
+            try:
+                audio_recorder.stop_recording()
+                logging.info("Audio recording stopped on exit")
+            except Exception as e:
+                logging.warning(f"Error stopping audio recording on exit: {e}")
+        
         if 'cap' in locals() and cap.isOpened():
             cap.release()
         if video_writer: # Ensure writer is released on exit

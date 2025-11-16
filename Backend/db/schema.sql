@@ -20,3 +20,12 @@ CREATE TABLE IF NOT EXISTS reminders (
     event_id INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS memory_nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    metadata TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+

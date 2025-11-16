@@ -1,8 +1,17 @@
 from flask import Blueprint, request, jsonify
 import os
+import json
 
-from db.database import get_events, search_events
+from db.database import (
+    get_events, 
+    search_events, 
+    create_memory_node, 
+    get_all_memory_nodes_for_search,
+    get_memory_nodes,
+    get_memory_node_by_id
+)
 from audio import recorder, transcribe_audio, save_transcript
+from ai.gemini_client import search_memory_nodes as gemini_search_memory_nodes
 
 api = Blueprint("api", __name__)
 
@@ -63,6 +72,27 @@ def transcribe():
             transcript_path = data.get("transcript_path", "transcript.txt")
             if save_transcript(transcript, timestamp, transcript_path):
                 result["transcript_path"] = transcript_path
+                
+                # Create MemoryNode for transcript (unified structure)
+                try:
+                    metadata = {
+                        "video_path": None,  # No video for API-only transcripts
+                        "audio_path": audio_path,
+                        "transcript_path": transcript_path,
+                        "summary": None,  # No video summary for audio-only
+                        "transcript": transcript,
+                        "objects_detected": [],
+                        "description": "Audio transcription"
+                    }
+                    create_memory_node(
+                        file_path=transcript_path,  # Use transcript path as primary
+                        file_type="recording",  # Use "recording" for consistency
+                        timestamp=timestamp,
+                        metadata=json.dumps(metadata)
+                    )
+                except Exception as e:
+                    # Log error but don't fail the request
+                    print(f"Failed to create MemoryNode for transcript: {e}")
         
         return jsonify(result), 200
         
@@ -143,9 +173,91 @@ def record_and_transcribe():
         transcript_path = data.get("transcript_path", "transcript.txt")
         if save_transcript(transcript, timestamp, transcript_path):
             result["transcript_path"] = transcript_path
+            
+            # Create MemoryNode for transcript (unified structure)
+            try:
+                metadata = {
+                    "video_path": None,  # No video for API-only transcripts
+                    "audio_path": output_path,
+                    "transcript_path": transcript_path,
+                    "summary": None,  # No video summary for audio-only
+                    "transcript": transcript,
+                    "objects_detected": [],
+                    "description": "Audio transcription"
+                }
+                create_memory_node(
+                    file_path=transcript_path,  # Use transcript path as primary
+                    file_type="recording",  # Use "recording" for consistency
+                    timestamp=timestamp,
+                    metadata=json.dumps(metadata)
+                )
+            except Exception as e:
+                # Log error but don't fail the request
+                print(f"Failed to create MemoryNode for transcript: {e}")
         
         return jsonify(result), 200
         
     except Exception as e:
         return jsonify({"error": f"Transcription failed: {str(e)}"}), 500
+
+
+# MemoryNode endpoints
+@api.route("/memory-nodes", methods=["GET"])
+def get_memory_nodes_endpoint():
+    """Get all MemoryNodes, optionally filtered by file_type"""
+    file_type = request.args.get("file_type")  # 'recording' (unified) or legacy types
+    limit = request.args.get("limit", type=int)
+    
+    try:
+        nodes = get_memory_nodes(file_type=file_type, limit=limit)
+        return jsonify({"memory_nodes": nodes}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to get MemoryNodes: {str(e)}"}), 500
+
+
+@api.route("/memory-nodes/<int:node_id>", methods=["GET"])
+def get_memory_node_endpoint(node_id):
+    """Get a specific MemoryNode by ID"""
+    try:
+        node = get_memory_node_by_id(node_id)
+        if node:
+            return jsonify(node), 200
+        else:
+            return jsonify({"error": "MemoryNode not found"}), 404
+    except Exception as e:
+        return jsonify({"error": f"Failed to get MemoryNode: {str(e)}"}), 500
+
+
+@api.route("/memory-nodes/search", methods=["POST"])
+def search_memory_nodes_endpoint():
+    """Search MemoryNodes using Gemini AI"""
+    data = request.get_json() or {}
+    query = data.get("query", "")
+    max_results = data.get("max_results", 5)
+    
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+    
+    try:
+        # Get all MemoryNodes for search
+        all_nodes = get_all_memory_nodes_for_search()
+        
+        if not all_nodes:
+            return jsonify({"memory_nodes": []}), 200
+        
+        # Use Gemini to search
+        results = gemini_search_memory_nodes(
+            query=query,
+            memory_nodes=all_nodes,
+            max_results=max_results
+        )
+        
+        return jsonify({
+            "query": query,
+            "memory_nodes": results,
+            "total_found": len(results)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Search failed: {str(e)}"}), 500
 

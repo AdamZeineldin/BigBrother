@@ -3,14 +3,17 @@ Audio module for Flask integration
 Handles audio recording and transcription using Gemini API
 Can also be used as a standalone CLI script (like SpeechtoText.py)
 """
-import os
-import sys
+# Standard library imports
 import argparse
+import os
 import queue
+import sys
 import threading
+from datetime import datetime
+
+# Third-party imports
 import sounddevice as sd
 import soundfile as sf
-from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -118,12 +121,15 @@ class SpeechRecorder:
     def _write_audio_data(self):
         """Write audio data from queue to file"""
         try:
-            while self.is_recording:
+            while self.is_recording or not self.audio_queue.empty():
                 try:
                     data = self.audio_queue.get(timeout=0.1)
                     if self.wav_file:
                         self.wav_file.write(data)
                 except queue.Empty:
+                    if not self.is_recording:
+                        # If recording stopped and queue is empty, exit
+                        break
                     continue
         except Exception as e:
             print(f"Error writing audio data: {e}", file=sys.stderr)

@@ -6,8 +6,10 @@ import logging
 import mimetypes
 import os
 import time
+import re
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 
 try:
     from dotenv import load_dotenv
@@ -34,7 +36,7 @@ if load_dotenv:
 
 _MODEL = None
 
-__all__ = ["describe_image", "summarize_video"]
+__all__ = ["describe_image", "summarize_video", "search_memory_nodes"]
 
 
 def _get_api_key() -> str:
@@ -169,6 +171,116 @@ def summarize_video(video_path: str, prompt: Optional[str] = None, timeout: int 
         return summary.strip()
 
     return "No summary returned"
+
+
+def search_memory_nodes(query: str, memory_nodes: List[Dict], max_results: int = 5, timeout: int = 60) -> List[Dict]:
+    """Search through MemoryNodes using Gemini to find the most relevant ones based on a query.
+    
+    Args:
+        query: User's search query
+        memory_nodes: List of MemoryNode dictionaries from the database
+        max_results: Maximum number of results to return
+        timeout: Seconds to wait for Gemini response
+    
+    Returns:
+        List of the most relevant MemoryNode dictionaries, ordered by relevance
+    """
+    if not memory_nodes:
+        return []
+    
+    model = _get_model()
+    
+    # Format MemoryNodes for Gemini
+    nodes_text = "MemoryNodes:\n"
+    for i, node in enumerate(memory_nodes):
+        metadata_str = ""
+        if node.get('metadata'):
+            try:
+                metadata = json.loads(node['metadata']) if isinstance(node['metadata'], str) else node['metadata']
+                metadata_str = f"Metadata: {json.dumps(metadata, indent=2)}\n"
+            except:
+                metadata_str = f"Metadata: {node.get('metadata', '')}\n"
+        
+        nodes_text += f"""
+Node {node['id']}:
+  File Type: {node['file_type']}
+  File Path: {node['file_path']}
+  Timestamp: {node['timestamp']}
+  {metadata_str}
+"""
+    
+    prompt = f"""You are a search assistant. Given the following MemoryNodes and a user query, identify the most relevant MemoryNodes.
+
+{nodes_text}
+
+User Query: "{query}"
+
+Analyze the query and the MemoryNodes. Consider:
+- File type relevance (video, audio, transcript)
+- Timestamp relevance
+- Metadata content
+- File path patterns
+
+Return ONLY a JSON array of the node IDs (as integers) that are most relevant to the query, ordered by relevance (most relevant first). 
+Return at most {max_results} node IDs.
+Format: [id1, id2, id3, ...]
+
+Example response: [5, 12, 3]"""
+
+    try:
+        response = model.generate_content(
+            prompt,
+            request_options={"timeout": timeout},
+        )
+        
+        response_text = getattr(response, "text", None)
+        if not response_text:
+            # Try to extract from candidates
+            if hasattr(response, "candidates"):
+                for candidate in response.candidates or []:
+                    if not candidate.content or not getattr(candidate.content, "parts", None):
+                        continue
+                    for part in candidate.content.parts:
+                        text = getattr(part, "text", None)
+                        if text:
+                            response_text = text
+                            break
+        
+        if response_text:
+            # Try to parse JSON array from response
+            # Remove markdown code blocks if present
+            response_text = response_text.strip()
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                response_text = "\n".join(lines[1:-1]) if len(lines) > 2 else response_text
+            elif response_text.startswith("`"):
+                response_text = response_text.strip("`")
+            
+            # Extract JSON array
+            json_match = re.search(r'\[[\d\s,]+\]', response_text)
+            if json_match:
+                node_ids = json.loads(json_match.group())
+            else:
+                # Try to parse the whole response as JSON
+                node_ids = json.loads(response_text)
+            
+            # Create a mapping of node IDs to nodes
+            node_map = {node['id']: node for node in memory_nodes}
+            
+            # Return nodes in the order specified by Gemini
+            results = []
+            for node_id in node_ids:
+                if node_id in node_map:
+                    results.append(node_map[node_id])
+            
+            return results[:max_results]
+        
+    except Exception as exc:
+        LOGGER.error(f"Gemini memory node search failed: {exc}", exc_info=True)
+        # Fallback: return empty list or all nodes if search fails
+        return []
+    
+    return []
 
 
 if __name__ == "__main__":
